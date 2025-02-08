@@ -1,12 +1,13 @@
-from flask import Flask, request, redirect, jsonify
+from flask import Flask, request, redirect, jsonify, render_template
 import redis
 import os
 import string
 import random
+from dotenv import load_dotenv
 
-
+load_dotenv()
 app = Flask(__name__)
-app.config['SERVER_NAME'] = 'b949-49-205-33-36.ngrok-free.app'
+app.config['SERVER_NAME'] = os.getenv('SERVER_NAME')
 
 redis_host = os.getenv("REDIS_HOST", "redis")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
@@ -19,32 +20,30 @@ def generate_short_key(length=6):
     return ''.join(random.choices(characters, k=length))
 
 
-@app.route("/shorten", methods=["POST"])
-def shorten_url():
-    data = request.json
-    long_url = data["url"]
-    if not long_url:
-        return jsonify({"error": "URL is required"}), 400
-    short_key = generate_short_key()
-    r.set(short_key, long_url)
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        long_url = request.form.get("url")
+        if not long_url:
+            return render_template("index.html", error="URL is required")
+        short_key = generate_short_key()
+        r.set(short_key, long_url)
+        short_url = f"http://{request.host}/{short_key}"
+        return render_template("index.html", short_url=short_url)
+    return render_template("index.html")
 
-    short_url = f"http://{request.host}/{short_key}"
-    return jsonify({"short_url": f"{short_url}"}), 201
 
-
-@app.route("/<short_key>", methods=["GET"])
+@app.route("/<short_key>")
 def redirect_url(short_key):
     long_url = r.get(short_key)
     if long_url:
-        # Ensure the URL has a scheme
-        if not long_url.startswith("http://") and not long_url.startswith("https://"):
+        if not long_url.startswith(("http://", "https://")):
             long_url = "http://" + long_url
         return redirect(long_url)
-
     return jsonify({"error": "Short URL not found"}), 404
 
 
-@app.route("/all", methods=["GET"])
+@app.route("/all")
 def get_all_short_urls():
     keys = r.keys(pattern='*')
     url_mapping = {key: r.get(key) for key in keys}
